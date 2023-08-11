@@ -1,1 +1,1 @@
-Micromouse solver
+Micromouse in the maze solver

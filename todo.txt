@@ -1,0 +1,7 @@
+- fps
+- take real time and time taken with the sleep
+- if taking a turn add time
+  - add less time if going straight
+- make the mouse find the target first
+- make it return to the start after finding the target
+

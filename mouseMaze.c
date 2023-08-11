@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <unistd.h>
 #include <time.h>
+#include "stack.h"
 
 #define U -1
 #define D -2
@@ -20,6 +22,8 @@ typedef struct pos {
   int x, y;
 } pos;
 
+stack queue;
+
 typedef struct mouse {
   pos pos;
   pos startPos;
@@ -30,7 +34,7 @@ typedef struct mouse {
   int** maze;
   int** floodAr;
   pos* lfr;
-  clock_t time;
+  clock_t start;
 } mouse;
 
 bool isNull(pos p) {
@@ -84,14 +88,33 @@ void printMaze(size_t h, size_t w, int** maze, mouse* m) {
       } else {
         if (maze[y][x] == WALL) {
           printf("%c%c", '#', '#');
-        }
-        else if (maze[y][x] == EMPTY) {
+        } else {
+        //else if (maze[y][x] == EMPTY) {
           printf("%c%c", ' ', ' ');
         }
       }
     }
     printf("\n");
   }
+}
+
+void printFaceDir(mouse* m) {
+  if (m->faceDir == U) printf("Facing: UP\n");
+  else if (m->faceDir == D) printf("Facing: DOWN\n");
+  else if (m->faceDir == L) printf("Facing: LEFT\n");
+  else if (m->faceDir == R) printf("Facing: RIGHT\n");
+}
+
+double getTime(mouse* m) {
+  clock_t now = clock();
+  double time_taken = ((double)(now - m->start) / CLOCKS_PER_SEC); //Seconds
+  return time_taken;
+}
+
+void printMouseStat(mouse* m) {
+  printf("Pos (x,y): (%d,%d)\n", m->pos.x, m->pos.y);
+  printFaceDir(m);
+  printf("Time: %f s\n", getTime(m));
 }
 
 mouse* createMouse(size_t mH, size_t mW, int sX, int sY) {
@@ -152,6 +175,7 @@ bool isWall(pos p, int** maze) {
 
 void insertWall(mouse* m, pos wallPos) {
   m->maze[wallPos.y][wallPos.x] = WALL;
+  m->floodAr[wallPos.y][wallPos.x] = -1;
 }
 
 void getSurround(mouse* m, int** maze) {
@@ -215,11 +239,41 @@ void initializeFloodArray(mouse* m) {
   }
 }
 
-void updateFloodArDist(mouse* m) {
-  int d;
-  for (int y = 0; y < m->mazeH; y++) {
-    for (int x = 0; x < m->mazeW; x++) {
+void getMinOfNBs(mouse* m, pos sP, int x, int y, int* min) {
+  int value = m->floodAr[y][x];
 
+  if (value < *min && !equal(sP, (pos){x,y}) && m->maze[y][x] != WALL) {
+    *min = value;
+  }
+
+  if (equal(sP, (pos){x,y})) getMinOfNBs(m, sP, x + 1, y, min);
+  if (equal(sP, (pos){x,y})) getMinOfNBs(m, sP, x - 1, y, min);
+  if (equal(sP, (pos){x,y})) getMinOfNBs(m, sP, x, y + 1, min);
+  if (equal(sP, (pos){x,y})) getMinOfNBs(m, sP, x, y - 1, min);
+}
+
+void addAllAccNBsToQ(mouse* m, pos sP, int x, int y) {
+  if (!equal(sP, (pos){x,y}) && m->maze[y][x] != WALL) {
+    push(&queue, &(pos){x,y});
+  }
+
+  if (equal(sP, (pos){x,y})) addAllAccNBsToQ(m, sP, x + 1, y);
+  if (equal(sP, (pos){x,y})) addAllAccNBsToQ(m, sP, x - 1, y);
+  if (equal(sP, (pos){x,y})) addAllAccNBsToQ(m, sP, x, y + 1);
+  if (equal(sP, (pos){x,y})) addAllAccNBsToQ(m, sP, x, y - 1);
+}
+
+void updateFloodAr(mouse* m, int x, int y) {
+  if (x >= m->mazeW || y >= m->mazeH || m->maze[y][x] == WALL) return;
+  push(&queue, &(pos){x, y});
+  while(!empty(&queue)) {
+    pos* cur = pop(&queue);
+    int curCellVal = m->floodAr[cur->y][cur->x];
+    int min = 1000000;
+    getMinOfNBs(m, *cur, cur->x, cur->y, &min);
+    if (curCellVal <= min) {
+      m->floodAr[cur->y][cur->x] = min + 1;
+      addAllAccNBsToQ(m, *cur, cur->x, cur->y);
     }
   }
 }
@@ -232,8 +286,11 @@ int detectBestMove(mouse* m) {
     if (isNull(bestPos)) {
       bestPos = m->lfr[i];
       bpi = i;
+      continue;
     }
-    else if (m->floodAr[m->lfr[i].y][m->lfr[i].x] < m->floodAr[bestPos.y][bestPos.x]) {
+    int bpD = m->floodAr[bestPos.y][bestPos.x];
+    int curD = m->floodAr[m->lfr[i].y][m->lfr[i].x];
+    if (curD < bpD) {
       bestPos = m->lfr[i];
       bpi = i;
     }
@@ -241,23 +298,50 @@ int detectBestMove(mouse* m) {
   return bpi;
 }
 
-
 void checkForTarget(mouse* m) {
-  if (equal(m->pos, m->targetPos)) m->targetFound = true;
+  if (equal(m->pos, m->targetPos)) {
+    m->targetFound = true;
+  }
+}
+
+void render(mouse* m, int** maze) {
+  system("clear");
+  printArray2FS(m->mazeH, m->mazeW, m->floodAr);
+  printMaze(m->mazeH, m->mazeW, maze, m);
+  printMouseStat(m);
+  usleep(100*1000);
+}
+
+bool noShorterPath(mouse* m) {
+  int cD = m->floodAr[m->pos.y][m->pos.x];
+  int nD;
+  bool wall;
+  for (int i = 0; i < 3; i++) {
+    nD = m->floodAr[m->lfr[i].y][m->lfr[i].x];
+    wall = isWall(m->lfr[i], m->maze);
+    if (nD < cD && !wall) return false;
+  }
+  return true;
 }
 
 void floodFillSearch(mouse* m, int** maze) {
   int bpi;
-  clock_t timeStart = clock();
+  m->start = clock();
   while(!m->targetFound) {
     getSurround(m, maze);
-    updateFloodArDist(m);
+    if (noShorterPath(m)) {
+      updateFloodAr(m, m->pos.x, m->pos.y);
+    }
     bpi = detectBestMove(m);
     moveTo(m, bpi);
     checkForTarget(m);
+    render(m, maze);
   }
-  m->time = clock() - timeStart;
-  printf("Target found in %d ms", (int)(m->time * 1000 / CLOCKS_PER_SEC));
+  printf("Target found in %f s\n", getTime(m));
+}
+
+void returnToStart(mouse* m, int** maze) {
+
 }
 
 pos buildMazeFromFile(size_t h, size_t w, int** maze, char* fileName) {
@@ -317,8 +401,10 @@ int main(int argc, char** argv) {
   m->targetPos = targetPos;
   m->faceDir = U;
 
+  initStack(&queue);
   initializeFloodArray(m);
   printMaze(h, w, maze, m);
+  floodFillSearch(m, maze);
 
   return 0;
 }
