@@ -117,16 +117,13 @@ void printMouseStat(mouse* m) {
   printf("Time: %f s\n", getTime(m));
 }
 
-mouse* createMouse(size_t mH, size_t mW, int sX, int sY) {
+mouse* createMouse(size_t mH, size_t mW) {
   mouse* m = (mouse*)malloc(sizeof(mouse));
-  m->startPos.x = sX;
-  m->startPos.y = sY;
-  m->pos.x = sX;
-  m->pos.y = sY;
   m->mazeH = mH;
   m->mazeW = mW;
-  m->targetPos.x = -1;
-  m->targetPos.y = -1;
+  m->pos = (pos){-1,-1};
+  m->startPos = (pos){-1,-1};
+  m->targetPos = (pos){-1,-1};
   m->targetFound = false;
   m->floodAr = allocArray(mH, mW);
   nullArray(m->mazeH, m->mazeW, m->floodAr);
@@ -309,7 +306,7 @@ void render(mouse* m, int** maze) {
   printArray2FS(m->mazeH, m->mazeW, m->floodAr);
   printMaze(m->mazeH, m->mazeW, maze, m);
   printMouseStat(m);
-  usleep(100*1000);
+  usleep(10*1000);
 }
 
 bool noShorterPath(mouse* m) {
@@ -325,6 +322,7 @@ bool noShorterPath(mouse* m) {
 }
 
 void floodFillSearch(mouse* m, int** maze) {
+  m->pos = m->startPos;
   int bpi;
   m->start = clock();
   while(!m->targetFound) {
@@ -344,16 +342,34 @@ void returnToStart(mouse* m, int** maze) {
 
 }
 
-pos buildMazeFromFile(size_t h, size_t w, int** maze, char* fileName) {
+void findSPTP(mouse* m, int** maze) {
+  for (int y = 0; y < m->mazeH; y++) {
+    for (int x = 0; x < m->mazeH; x++) {
+      if (maze[y][x] == MOUSE) {
+        m->startPos = (pos){x,y};
+      }
+      else if (maze[y][x] == TARGET) {
+        m->targetPos = (pos){x,y};
+      }
+    }
+  }
+  if (isNull(m->startPos)) {
+    printf("Mouse not found!\n");
+    exit(1);
+  }
+  else if (isNull(m->targetPos)) {
+    printf("Target not found!\n");
+    exit(1);
+  }
+}
+
+void buildMazeFromFile(size_t h, size_t w, int** maze, char* fileName) {
   FILE* fptr = fopen(fileName, "r");
   char line[w];
 
   int y = 0;
-  pos tarPos;
   if (!fptr) {
-      tarPos.x = -1;
-      tarPos.y = -1;
-      return tarPos;
+      return;
   }
   while(fgets(line, w + 2, fptr)) {
     if (y >= h) break;
@@ -363,8 +379,6 @@ pos buildMazeFromFile(size_t h, size_t w, int** maze, char* fileName) {
       }
       else if (line[x] == '%') {
         maze[y][x] = TARGET;
-        tarPos.x = x;
-        tarPos.y = y;
       }
       else if (line[x] == 'M') {
         maze[y][x] = MOUSE;
@@ -373,7 +387,6 @@ pos buildMazeFromFile(size_t h, size_t w, int** maze, char* fileName) {
     y++;
   }
   fclose(fptr);
-  return tarPos;
 }
 
 int main(int argc, char** argv) {
@@ -395,15 +408,16 @@ int main(int argc, char** argv) {
   size_t w = atoi(mS);
   int** maze = allocArray(h, w);
   nullArray(h, w, maze);
-  pos targetPos = buildMazeFromFile(h, w, maze, mz);
+  buildMazeFromFile(h, w, maze, mz);
 
-  mouse* m = createMouse(h, w, 1, h - 2);
-  m->targetPos = targetPos;
+  mouse* m = createMouse(h, w);
+  findSPTP(m, maze);
   m->faceDir = U;
 
   initStack(&queue);
   initializeFloodArray(m);
-  printMaze(h, w, maze, m);
+
+  //m->startPos = (pos){1,1};
   floodFillSearch(m, maze);
 
   return 0;
