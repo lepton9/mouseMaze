@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <time.h>
 #include "../include/stack.h"
+#include "../include/lList.h"
 
 #define MAZEPATH "./mazes/"
 
@@ -40,7 +41,7 @@ typedef struct mouse {
   pos* lfr;
   clock_t start;
   double times[RUN_TIMES];
-  stack path;
+  lList* path;
 } mouse;
 
 bool isNull(pos p) {
@@ -139,7 +140,7 @@ mouse* createMouse(size_t mH, size_t mW) {
   m->maze = allocArray(mH, mW);
   nullArray(m->mazeH, m->mazeW, m->maze);
   m->lfr = malloc(sizeof(pos) * 3);
-  initialize(&m->path);
+  m->path = create_list();
   return m;
 }
 
@@ -235,7 +236,7 @@ void moveTo(mouse* m, int ilfr) {
   }
   pos* p = malloc(sizeof(pos));
   memcpy(p, &m->pos, sizeof(m->pos));
-  push(&m->path, p);
+  add_to_end(m->path, p);
 }
 
 int distance(int x1, int y1, int x2, int y2) {
@@ -357,7 +358,8 @@ void floodFillSearch(mouse* m, int** maze) {
 void returnToStart(mouse* m, int** maze) {
   m->pos = m->startPos;
   m->targetFound = false;
-  clear(&m->path);
+  list_clear(m->path);
+  add_to_end(m->path, &m->startPos);
 }
 
 void findSPTP(mouse* m, int** maze) {
@@ -421,14 +423,15 @@ double getBestTime(mouse* m) {
   return bestTime;
 }
 
-void printBestRoute(stack* pb, mouse* m, int** maze) {
+void printBestRoute(lList* pb, mouse* m, int** maze) {
   int size = pb->size; returnToStart(m, maze);
   printf("Best route: \n");
+  printf("Size: %d\n", pb->size);
   sleep(1);
-  while(!empty(pb)) {
+  while(!is_empty(pb)) {
     system("clear");
     printf("Number of moves in route: %d\n", size);
-    pos* p = pop(pb);
+    pos* p = pop_front(pb);
     printf("Cell pos (x,y): %d,%d\n", p->x, p->y);
     move(m, *p);
     maze[m->pos.y][m->pos.x] = ROUTE;
@@ -476,16 +479,16 @@ int main(int argc, char** argv) {
   //m->startPos = (pos){1,1};
 
   double pb = -1;
-  stack pbPath;
-  initialize(&pbPath);
+  lList* pbPath = create_list();
+
 
   for (int i = 0; i < RUN_TIMES; i++) {
     floodFillSearch(m, maze);
     m->times[i] = getTime(m);
     if (pb < 0 || m->times[i] < pb) {
       pb = m->times[i];
-      clear(&pbPath);
-      memcpy(&pbPath, &m->path, sizeof(m->path));
+      list_clear(pbPath);
+      copy_list(pbPath, m->path);
     }
     printf("Target found in %f s\n", m->times[i]);
     returnToStart(m, maze);
@@ -494,7 +497,7 @@ int main(int argc, char** argv) {
   printf("Best time was: %f s\n", getBestTime(m));
   sleep(1);
 
-  printBestRoute(&pbPath, m, maze);
+  printBestRoute(pbPath, m, maze);
 
   return 0;
 }
