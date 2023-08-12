@@ -1,4 +1,4 @@
 #/bin/bash
 
-gcc -g mouseMaze.c stack.c -o mm
-./mm maze.txt 33
+gcc -g ./src/mouseMaze.c ./src/stack.c -I./include/ -o ./bin/mm
+./bin/mm

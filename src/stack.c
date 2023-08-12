@@ -1,8 +1,9 @@
 #include "stack.h"
 
-void initStack(stack* stack) {
+void initialize(stack* stack) {
   stack->front = 0;
   stack->back = 0;
+  stack->size = 0;
 }
 
 int full(stack* stack) {
@@ -15,19 +16,17 @@ int empty(stack* stack) {
 
 void push(stack* stack, void* value) {
   if (full(stack)) {
-    printf("Stack is full!");
+    printf("Stack is full -> %d\n", stack->size);
     return;
   }
   if (empty(stack)) {
     stack->front = 0;
     stack->back = 0;
   }
-
   stack->data[stack->back] = value;
   stack->size++;
   stack->back++;
   if (stack->back == MAX_SIZE) stack->back = 0;
-  
 }
 
 void* pop(stack* stack) {
@@ -41,4 +40,11 @@ void* pop(stack* stack) {
   return value;
 }
 
+void clear(stack* stack) {
+  while(!empty(stack)) {
+    pop(stack);
+  }
+  stack->front = 0;
+  stack->back = 0;
+}
 

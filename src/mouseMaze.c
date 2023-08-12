@@ -1,10 +1,13 @@
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
 #include <unistd.h>
 #include <time.h>
-#include "stack.h"
+#include "../include/stack.h"
+
+#define MAZEPATH "./mazes/"
 
 #define U -1
 #define D -2
@@ -15,8 +18,9 @@
 #define WALL 1
 #define MOUSE 2
 #define TARGET 3
+#define ROUTE 4
 
-#define TURN_TIME_MS 10
+#define RUN_TIMES 5
 
 typedef struct pos {
   int x, y;
@@ -35,6 +39,8 @@ typedef struct mouse {
   int** floodAr;
   pos* lfr;
   clock_t start;
+  double times[RUN_TIMES];
+  stack path;
 } mouse;
 
 bool isNull(pos p) {
@@ -81,16 +87,19 @@ void printMaze(size_t h, size_t w, int** maze, mouse* m) {
   for (int y = 0; y < h; y++) {
     for (int x = 0; x < w; x++) {
       if (equal(m->pos, (pos){x, y})) {
-        printf("%c%c", '(', ')');
+        printf("%s", "()");
       }
       else if (equal(m->targetPos, (pos){x, y})) {
-        printf("%c%c", '%', '%');
+        printf("%s", "%%");
       } else {
         if (maze[y][x] == WALL) {
-          printf("%c%c", '#', '#');
+          printf("%s", "##");
+        }
+        else if (maze[y][x] == ROUTE) {
+          printf("%s", "::");
         } else {
         //else if (maze[y][x] == EMPTY) {
-          printf("%c%c", ' ', ' ');
+          printf("%s", "  ");
         }
       }
     }
@@ -130,16 +139,17 @@ mouse* createMouse(size_t mH, size_t mW) {
   m->maze = allocArray(mH, mW);
   nullArray(m->mazeH, m->mazeW, m->maze);
   m->lfr = malloc(sizeof(pos) * 3);
+  initialize(&m->path);
   return m;
 }
 
 pos posFront(const int faceDir, const pos p) {
-  pos pL = p;
-  if (faceDir == U) pL.y--;
-  else if (faceDir == D) pL.y++;
-  else if (faceDir == L) pL.x--;
-  else if (faceDir == R) pL.x++;
-  return pL;
+  pos pF = p;
+  if (faceDir == U) pF.y--;
+  else if (faceDir == D) pF.y++;
+  else if (faceDir == L) pF.x--;
+  else if (faceDir == R) pF.x++;
+  return pF;
 }
 pos posLeft(const int faceDir, const pos p) {
   pos pL = p;
@@ -150,12 +160,12 @@ pos posLeft(const int faceDir, const pos p) {
   return pL;
 }
 pos posRight(const int faceDir, const pos p) {
-  pos pL = p;
-  if (faceDir == U) pL.x++;
-  else if (faceDir == D) pL.x--;
-  else if (faceDir == L) pL.y--;
-  else if (faceDir == R) pL.y++;
-  return pL;
+  pos pR = p;
+  if (faceDir == U) pR.x++;
+  else if (faceDir == D) pR.x--;
+  else if (faceDir == L) pR.y--;
+  else if (faceDir == R) pR.y++;
+  return pR;
 }
 pos posBack(const int faceDir, const pos p) {
   pos pB = p;
@@ -206,6 +216,10 @@ void turnAround(mouse* m) {
   else if (m->faceDir == R) m->faceDir = L;
 }
 
+void move(mouse* m, pos p) {
+  m->pos = p;
+}
+
 void moveTo(mouse* m, int ilfr) {
   if (ilfr < 0) {
     m->pos = posBack(m->faceDir, m->pos);
@@ -219,6 +233,9 @@ void moveTo(mouse* m, int ilfr) {
       turnRight(m);
     }
   }
+  pos* p = malloc(sizeof(pos));
+  memcpy(p, &m->pos, sizeof(m->pos));
+  push(&m->path, p);
 }
 
 int distance(int x1, int y1, int x2, int y2) {
@@ -261,7 +278,7 @@ void addAllAccNBsToQ(mouse* m, pos sP, int x, int y) {
 }
 
 void updateFloodAr(mouse* m, int x, int y) {
-  if (x >= m->mazeW || y >= m->mazeH || m->maze[y][x] == WALL) return;
+  if (x >= m->mazeW || y >= m->mazeH) return;
   push(&queue, &(pos){x, y});
   while(!empty(&queue)) {
     pos* cur = pop(&queue);
@@ -303,10 +320,10 @@ void checkForTarget(mouse* m) {
 
 void render(mouse* m, int** maze) {
   system("clear");
-  printArray2FS(m->mazeH, m->mazeW, m->floodAr);
+  //printArray2FS(m->mazeH, m->mazeW, m->floodAr);
   printMaze(m->mazeH, m->mazeW, maze, m);
   printMouseStat(m);
-  usleep(10*1000);
+  //usleep(10*1000);
 }
 
 bool noShorterPath(mouse* m) {
@@ -327,7 +344,7 @@ void floodFillSearch(mouse* m, int** maze) {
   m->start = clock();
   while(!m->targetFound) {
     getSurround(m, maze);
-    if (noShorterPath(m)) {
+    if (noShorterPath(m) || m->maze[m->lfr[1].y][m->lfr[1].x] == WALL) {
       updateFloodAr(m, m->pos.x, m->pos.y);
     }
     bpi = detectBestMove(m);
@@ -335,11 +352,12 @@ void floodFillSearch(mouse* m, int** maze) {
     checkForTarget(m);
     render(m, maze);
   }
-  printf("Target found in %f s\n", getTime(m));
 }
 
 void returnToStart(mouse* m, int** maze) {
-
+  m->pos = m->startPos;
+  m->targetFound = false;
+  clear(&m->path);
 }
 
 void findSPTP(mouse* m, int** maze) {
@@ -364,12 +382,16 @@ void findSPTP(mouse* m, int** maze) {
 }
 
 void buildMazeFromFile(size_t h, size_t w, int** maze, char* fileName) {
-  FILE* fptr = fopen(fileName, "r");
+  char path[100];
+  strcpy(path, MAZEPATH);
+  strcat(path, fileName);
+  FILE* fptr = fopen(path, "r");
   char line[w];
 
   int y = 0;
   if (!fptr) {
-      return;
+    printf("File %s not found!\n", fileName);
+    exit(1);
   }
   while(fgets(line, w + 2, fptr)) {
     if (y >= h) break;
@@ -389,11 +411,41 @@ void buildMazeFromFile(size_t h, size_t w, int** maze, char* fileName) {
   fclose(fptr);
 }
 
+double getBestTime(mouse* m) {
+  double bestTime = -1;
+  for (int i = 0; i < RUN_TIMES; i++) {
+    if (m->times[i] < bestTime || bestTime < 0) {
+      bestTime = m->times[i];
+    }
+  }
+  return bestTime;
+}
+
+void printBestRoute(stack* pb, mouse* m, int** maze) {
+  int size = pb->size; returnToStart(m, maze);
+  printf("Best route: \n");
+  sleep(1);
+  while(!empty(pb)) {
+    system("clear");
+    printf("Number of moves in route: %d\n", size);
+    pos* p = pop(pb);
+    printf("Cell pos (x,y): %d,%d\n", p->x, p->y);
+    move(m, *p);
+    maze[m->pos.y][m->pos.x] = ROUTE;
+    printMaze(m->mazeH, m->mazeW, maze, m);
+  }
+}
+
 int main(int argc, char** argv) {
   char* mz;
   char* mS;
   if (argc <= 2) {
     char str[100];
+    printf("Available mazes: \n");
+    char command[100];
+    strcpy(command, "ls ");
+    strcat(command, MAZEPATH);
+    system(command);
     printf("Give maze and maze size: ");
     fgets(str, sizeof(str), stdin);
     char* ptr = strtok(str, " ");
@@ -403,6 +455,10 @@ int main(int argc, char** argv) {
   } else {
     mz = argv[1];
     mS = argv[2];
+  }
+  if (mz == NULL || mS == NULL) {
+    printf("Failed to give arguments!\n");
+    exit(1);
   }
   size_t h = atoi(mS);
   size_t w = atoi(mS);
@@ -414,11 +470,32 @@ int main(int argc, char** argv) {
   findSPTP(m, maze);
   m->faceDir = U;
 
-  initStack(&queue);
+  initialize(&queue);
   initializeFloodArray(m);
 
   //m->startPos = (pos){1,1};
-  floodFillSearch(m, maze);
+
+  double pb = -1;
+  stack pbPath;
+  initialize(&pbPath);
+
+  for (int i = 0; i < RUN_TIMES; i++) {
+    floodFillSearch(m, maze);
+    m->times[i] = getTime(m);
+    if (pb < 0 || m->times[i] < pb) {
+      pb = m->times[i];
+      clear(&pbPath);
+      memcpy(&pbPath, &m->path, sizeof(m->path));
+    }
+    printf("Target found in %f s\n", m->times[i]);
+    returnToStart(m, maze);
+    sleep(1);
+  }
+  printf("Best time was: %f s\n", getBestTime(m));
+  sleep(1);
+
+  printBestRoute(&pbPath, m, maze);
 
   return 0;
 }
+
